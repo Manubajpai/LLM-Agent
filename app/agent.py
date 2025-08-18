@@ -54,7 +54,7 @@ def create_data_analyst_agent():
         MessagesPlaceholder(variable_name="agent_scratchpad"),
     ])
 
-    llm = ChatOpenAI(model="gpt-4o", temperature=0)
+    llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
     agent = create_tool_calling_agent(llm, tools, prompt)
     
     agent_executor = AgentExecutor(

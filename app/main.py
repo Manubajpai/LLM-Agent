@@ -1,6 +1,6 @@
 import os
 import shutil
-from fastapi import FastAPI, File, UploadFile, HTTPException, Request
+from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from app.agent import create_data_analyst_agent
@@ -16,38 +16,28 @@ except Exception as e:
     agent_executor = None
 
 @app.post("/api/", tags=["Analysis"])
-async def analyze_data(request: Request):
+async def analyze_data( question_file: UploadFile = File(...), data_file: UploadFile = File(None) ):
     if agent_executor is None:
         raise HTTPException(status_code=500, detail="Agent not initialized.")
 
     try:
-        # Manually parse the multipart form data to handle dynamic field names
-        form_data = await request.form()
-        
-        question_file = None
-        data_file = None
-
-        # Find the question and data files by their content type or filename extension
-        for key, value in form_data.items():
-            if isinstance(value, UploadFile):
-                if value.filename.endswith('.txt'):
-                    question_file = value
-                elif value.filename.endswith('.csv'):
-                    data_file = value
-        
-        if not question_file:
-            raise HTTPException(status_code=400, detail="Missing required question file (must be a .txt file).")
-
         user_prompt = (await question_file.read()).decode("utf-8")
         
         params = {"input": user_prompt}
         if data_file:
-            # Read the data content and pass it directly into the prompt
-            data_content = (await data_file.read()).decode("utf-8")
-            params["input"] += f"\n\nHere is the data for your analysis, provided in CSV format:\n---\n{data_content}\n---"
+            # Save the uploaded data file to a temporary path that tools can access
+            temp_dir = tempfile.gettempdir()
+            temp_data_path = os.path.join(temp_dir, data_file.filename)
+            with open(temp_data_path, "wb") as f:
+                f.write(await data_file.read())
+            # Add the file path to the prompt for the specialist tools
+            params["input"] += f"\nFile is at path: {temp_data_path}"
 
         response = agent_executor.invoke(params)
         return JSONResponse(content=response.get("output"))
 
     except Exception as e:
+        # Clean up temp file on error if it exists
+        if 'temp_data_path' in locals() and os.path.exists(temp_data_path):
+            os.remove(temp_data_path)
         raise HTTPException(status_code=500, detail=f"An unexpected error occurred: {str(e)}")

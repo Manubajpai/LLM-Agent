@@ -4,8 +4,14 @@ from langchain_openai import ChatOpenAI
 from langchain.agents import AgentExecutor, create_tool_calling_agent
 from langchain.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_tavily import TavilySearch
-
-from app.tools import python_code_interpreter
+from app.tools import (
+    analyze_sales_csv, 
+    analyze_wikipedia_movies,
+    analyze_weather_csv,
+    analyze_network_graph,
+    analyze_indian_court_data,
+    python_code_interpreter
+)
 
 def create_data_analyst_agent():
     """Creates and returns the data analyst agent executor."""
@@ -13,11 +19,30 @@ def create_data_analyst_agent():
     if not os.getenv("OPENAI_API_KEY") or not os.getenv("TAVILY_API_KEY"):
         raise ValueError("OpenAI and Tavily API keys must be set in the .env file.")
 
-    search_tool = TavilySearch(max_results=5, description="A search engine for finding information, data sources, or answers to simple factual questions.")
-    tools = [search_tool, python_code_interpreter]
+    search_tool = TavilySearch(max_results=3)
+    tools = [
+        analyze_sales_csv,
+        analyze_wikipedia_movies,
+        analyze_weather_csv,
+        analyze_network_graph,
+        analyze_indian_court_data,
+        search_tool,
+        python_code_interpreter
+    ]
     
     prompt_template = """
-    You are an expert-level, autonomous Data Analyst Agent. Your sole objective is to answer a user's question by acquiring, cleaning, analyzing, and visualizing data.
+    You are an expert dispatching agent. Your job is to analyze the user's request and choose the single best tool to answer it.
+
+    **TOOL SELECTION GUIDE:**
+
+    1.  IF the user asks about **highest-grossing films from Wikipedia**, you MUST use the `analyze_wikipedia_movies` tool.
+    2.  IF the user provides a `sales.csv` file, you MUST use the `analyze_sales_csv` tool.
+    3.  IF the user provides a `weather.csv` file, you MUST use the `analyze_weather_csv` tool.
+    4.  IF the user provides an `edges.csv` file, you MUST use the `analyze_network_graph` tool.
+    5.  IF the user asks about the **Indian High Court dataset**, you MUST use the `analyze_indian_court_data` tool.
+    6.  **FOR ALL OTHER QUESTIONS**, you must use your general-purpose tools. First, consider using `tavily_search_results_json`, then use `python_code_interpreter` for any analysis.
+
+    Choose the most appropriate tool and call it with the correct parameters.
 
     ### Core Logic & Workflow
     1.  **Analyze the Request**: Deeply analyze the user's prompt to understand the fundamental goal.
@@ -46,6 +71,7 @@ def create_data_analyst_agent():
     ### General Tool Rules
     * **`python_code_interpreter`**: Your script **MUST** assign its final answer (a Python list or dictionary) to a single variable named `final_result`. If a plot is generated, it MUST be a base-64 encoded string within the `final_result` dictionary. All plots must be closed with `plt.close()`.
     * **Final Output**: Your final response MUST be a raw JSON array or object as requested by the user. Do not add any extra text, explanations, or conversational filler.
+
     """
     
     prompt = ChatPromptTemplate.from_messages([
@@ -54,7 +80,7 @@ def create_data_analyst_agent():
         MessagesPlaceholder(variable_name="agent_scratchpad"),
     ])
 
-    llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
+    llm = ChatOpenAI(model="gpt-4o", temperature=0)
     agent = create_tool_calling_agent(llm, tools, prompt)
     
     agent_executor = AgentExecutor(
@@ -62,6 +88,6 @@ def create_data_analyst_agent():
         tools=tools, 
         verbose=True,
         handle_parsing_errors=True,
-        max_iterations=25 
+        max_iterations=25
     )
     return agent_executor

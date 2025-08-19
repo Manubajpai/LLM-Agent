@@ -41,3 +41,5 @@ async def analyze_data( question_file: UploadFile = File(...), data_file: Upload
         if 'temp_data_path' in locals() and os.path.exists(temp_data_path):
             os.remove(temp_data_path)
         raise HTTPException(status_code=500, detail=f"An unexpected error occurred: {str(e)}")
+
+# done

@@ -1,7 +1,7 @@
 import os
 import shutil
 from fastapi import FastAPI, File, UploadFile, HTTPException
-from fastapi.responses import JSONResponse, FileResponse
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from app.agent import create_data_analyst_agent
 import tempfile
@@ -23,29 +23,21 @@ async def analyze_data( question_file: UploadFile = File(...), data_file: Upload
     try:
         user_prompt = (await question_file.read()).decode("utf-8")
         
+        params = {"input": user_prompt}
         if data_file:
-            data_content = (await data_file.read()).decode("utf-8")
-           
-            user_prompt += f"\n\nHere is the data for your analysis, provided in CSV format:\n---\n{data_content}\n---"
-        
-        response = agent_executor.invoke({"input": user_prompt})
-        agent_output = response.get("output")
-        
-       
-        if isinstance(agent_output, dict):
-            final_response = agent_output.get("result", {})
-            if agent_output.get("plot_created"):
-                final_response["plot_url"] = "/api/latest-plot"
-            return JSONResponse(content=final_response)
-        else:
-            return JSONResponse(content={"message": str(agent_output)})
+            # Save the uploaded data file to a temporary path that tools can access
+            temp_dir = tempfile.gettempdir()
+            temp_data_path = os.path.join(temp_dir, data_file.filename)
+            with open(temp_data_path, "wb") as f:
+                f.write(await data_file.read())
+            # Add the file path to the prompt for the specialist tools
+            params["input"] += f"\nFile is at path: {temp_data_path}"
+
+        response = agent_executor.invoke(params)
+        return JSONResponse(content=response.get("output"))
 
     except Exception as e:
+        # Clean up temp file on error if it exists
+        if 'temp_data_path' in locals() and os.path.exists(temp_data_path):
+            os.remove(temp_data_path)
         raise HTTPException(status_code=500, detail=f"An unexpected error occurred: {str(e)}")
-
-@app.get("/api/latest-plot", tags=["Analysis"])
-async def get_latest_plot():
-    plot_path = os.path.join(tempfile.gettempdir(), "latest_plot.png")
-    if os.path.exists(plot_path):
-        return FileResponse(plot_path, media_type="image/png")
-    raise HTTPException(status_code=404, detail="Plot not found.")
